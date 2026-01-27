@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+
+.env
+
+logs/
+cache/
+*.parquet
+live_submission_*.csv
+diagnostics_*.csv
+diagnostics_raw_*.csv
+payout_backtest_report_*.*
+backtest_report_*.pdf
+backtest_report_*.txt
+
+.ipynb_checkpoints/
+.DS_Store
