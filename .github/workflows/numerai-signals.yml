@@ -21,12 +21,13 @@ jobs:
       ENABLE_SOCIAL_FEATURES: "0"
       LOG_STDOUT: "1"
       LOG_HEARTBEAT: "1"
-      FAST_MODE: "1"
-      YEARS_BACK: "5"
-      DATA_START_DATE: "2018-01-01"
-      TRAIN_START_DATE: "2018-01-01"
-      MODEL_CV_FOLDS: "2"
-      YF_BATCH_SLEEP: "1.5"
+      # keep full training for performance, only slow down data fetches to avoid rate limits
+      YF_MAX_BATCH: "15"
+      YF_MAX_RETRIES: "6"
+      YF_BACKOFF_BASE: "2.0"
+      YF_BACKOFF_CAP: "30.0"
+      YF_BATCH_SLEEP: "2.0"
+      YF_THREADS: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,6 +41,16 @@ jobs:
           key: numerai-cache-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             numerai-cache-${{ runner.os }}-
+      - name: Restore datasets
+        uses: actions/cache@v4
+        with:
+          path: |
+            v2.1_live.parquet
+            v2.1_train.parquet
+            v2.1_validation.parquet
+            v2.1_train_sample_weights.parquet
+            v2.1_validation_sample_weights.parquet
+          key: numerai-datasets-v2.1-${{ runner.os }}
       - name: Install deps
         run: |
           python -m pip install --upgrade pip

@@ -1,6 +1,6 @@
 
 
-import os, re, time, json, argparse, warnings, traceback, sys, threading
+import os, re, time, json, argparse, warnings, traceback, sys, threading, random
 from collections import deque
 from importlib import import_module
 from datetime import datetime, timedelta
@@ -714,7 +714,10 @@ def get_price_data_cached(tmap: pd.DataFrame) -> pd.DataFrame:
     end_str = (today + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     max_batch = int(os.getenv("YF_MAX_BATCH","50"))
     max_retries = int(os.getenv("YF_MAX_RETRIES","3"))
+    backoff_base = float(os.getenv("YF_BACKOFF_BASE","2.0"))
+    backoff_cap = float(os.getenv("YF_BACKOFF_CAP","30.0"))
     batch_sleep = float(os.getenv("YF_BATCH_SLEEP", "0"))
+    use_threads = bool(int(os.getenv("YF_THREADS", "1")))
     for t in need:
         if t in last_by:
             start_dt = (pd.to_datetime(last_by[t]) + pd.Timedelta(days=1)).tz_localize(None).normalize()
@@ -741,12 +744,16 @@ def get_price_data_cached(tmap: pd.DataFrame) -> pd.DataFrame:
                 data = yf.download(
                     symbols, start=start, end=end_str,
                     progress=False, auto_adjust=True,
-                    group_by='column', threads=True
+                    group_by='column', threads=use_threads
                 )
-                return data
+                if data is not None and not data.empty:
+                    return data
+                last_err = RuntimeError("yfinance returned empty frame")
             except Exception as err:
                 last_err = err
-                time.sleep(2*(attempt+1))
+            sleep_for = min(backoff_cap, backoff_base * (2 ** attempt))
+            sleep_for += random.uniform(0, 0.5)
+            time.sleep(sleep_for)
         log.warning(f"yfinance download failed for batch start={start} (n={len(symbols)}): {last_err}")
         return None
 
