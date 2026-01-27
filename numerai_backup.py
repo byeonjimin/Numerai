@@ -217,6 +217,9 @@ STACK_META_ALPHA = float(os.getenv("STACK_META_ALPHA","0.0"))
 STACK_META_MIN_MODELS = int(os.getenv("STACK_META_MIN_MODELS","3"))
 STACK_META_MIN_SPEARMAN = float(os.getenv("STACK_META_MIN_SPEARMAN","0.01"))
 EMBARGO_WEEKS = int(os.getenv("EMBARGO_WEEKS","4"))
+FAST_MODE = bool(int(os.getenv("FAST_MODE", "0")))
+if FAST_MODE:
+    MODEL_CV_FOLDS = min(MODEL_CV_FOLDS, 2)
 
 NUMERAI_API_MAX_RETRIES = max(int(os.getenv("NUMERAI_API_MAX_RETRIES", "3")), 1)
 NUMERAI_API_RETRY_BACKOFF = float(os.getenv("NUMERAI_API_RETRY_BACKOFF", "2.0"))
@@ -711,6 +714,7 @@ def get_price_data_cached(tmap: pd.DataFrame) -> pd.DataFrame:
     end_str = (today + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     max_batch = int(os.getenv("YF_MAX_BATCH","50"))
     max_retries = int(os.getenv("YF_MAX_RETRIES","3"))
+    batch_sleep = float(os.getenv("YF_BATCH_SLEEP", "0"))
     for t in need:
         if t in last_by:
             start_dt = (pd.to_datetime(last_by[t]) + pd.Timedelta(days=1)).tz_localize(None).normalize()
@@ -768,6 +772,8 @@ def get_price_data_cached(tmap: pd.DataFrame) -> pd.DataFrame:
             except Exception as err:
                 log.warning(f"Failed to process price frame (start={k}, n={len(sub)}): {err}")
                 continue
+            if batch_sleep > 0:
+                time.sleep(batch_sleep)
     out = cached.copy()
     if new_frames:
         out = pd.concat([cached] + new_frames, ignore_index=True)
@@ -1463,38 +1469,52 @@ def train_ensemble_with_sweep(X_tr, y_tr, X_va, y_va, feats,
         raise RuntimeError("lightgbm is required.")
     models = []
 
-    lightgbm_grid = [
-        dict(
-            name="stable32_lr02",
-            seeds=[37],
-            params=dict(
-                n_estimators=1400, learning_rate=0.02, num_leaves=32, max_depth=-1,
-                min_child_samples=50, subsample=0.85, subsample_freq=2,
-                colsample_bytree=0.9, feature_fraction=0.8,
-                reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.005
-            )
-        ),
-        dict(
-            name="balanced64_lr035",
-            seeds=[41],
-            params=dict(
-                n_estimators=1100, learning_rate=0.035, num_leaves=64, max_depth=-1,
-                min_child_samples=50, subsample=0.9, subsample_freq=2,
-                colsample_bytree=0.9, feature_fraction=0.82,
-                reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.005
-            )
-        ),
-        dict(
-            name="fast128_lr05",
-            seeds=[55],
-            params=dict(
-                n_estimators=850, learning_rate=0.05, num_leaves=128, max_depth=-1,
-                min_child_samples=50, subsample=0.85, subsample_freq=1,
-                colsample_bytree=0.85, feature_fraction=0.78,
-                reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.01
-            )
-        ),
-    ]
+    if FAST_MODE:
+        lightgbm_grid = [
+            dict(
+                name="fast64_lr05",
+                seeds=[37],
+                params=dict(
+                    n_estimators=450, learning_rate=0.05, num_leaves=64, max_depth=-1,
+                    min_child_samples=60, subsample=0.8, subsample_freq=1,
+                    colsample_bytree=0.85, feature_fraction=0.8,
+                    reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.01
+                )
+            ),
+        ]
+    else:
+        lightgbm_grid = [
+            dict(
+                name="stable32_lr02",
+                seeds=[37],
+                params=dict(
+                    n_estimators=1400, learning_rate=0.02, num_leaves=32, max_depth=-1,
+                    min_child_samples=50, subsample=0.85, subsample_freq=2,
+                    colsample_bytree=0.9, feature_fraction=0.8,
+                    reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.005
+                )
+            ),
+            dict(
+                name="balanced64_lr035",
+                seeds=[41],
+                params=dict(
+                    n_estimators=1100, learning_rate=0.035, num_leaves=64, max_depth=-1,
+                    min_child_samples=50, subsample=0.9, subsample_freq=2,
+                    colsample_bytree=0.9, feature_fraction=0.82,
+                    reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.005
+                )
+            ),
+            dict(
+                name="fast128_lr05",
+                seeds=[55],
+                params=dict(
+                    n_estimators=850, learning_rate=0.05, num_leaves=128, max_depth=-1,
+                    min_child_samples=50, subsample=0.85, subsample_freq=1,
+                    colsample_bytree=0.85, feature_fraction=0.78,
+                    reg_lambda=0.3, reg_alpha=0.3, min_split_gain=0.01
+                )
+            ),
+        ]
 
     lgb_results = []
     for i, spec in enumerate(lightgbm_grid, start=1):

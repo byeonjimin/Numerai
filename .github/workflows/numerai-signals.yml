@@ -21,6 +21,12 @@ jobs:
       ENABLE_SOCIAL_FEATURES: "0"
       LOG_STDOUT: "1"
       LOG_HEARTBEAT: "1"
+      FAST_MODE: "1"
+      YEARS_BACK: "5"
+      DATA_START_DATE: "2018-01-01"
+      TRAIN_START_DATE: "2018-01-01"
+      MODEL_CV_FOLDS: "2"
+      YF_BATCH_SLEEP: "1.5"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
