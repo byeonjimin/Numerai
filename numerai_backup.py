@@ -1,6 +1,6 @@
 
 
-import os, re, time, json, argparse, warnings, traceback
+import os, re, time, json, argparse, warnings, traceback, sys, threading
 from collections import deque
 from importlib import import_module
 from datetime import datetime, timedelta
@@ -90,6 +90,19 @@ def _iter_with_progress(iterable, description: str, total: Optional[int]=None, l
         log_obj.info(f"{description} progress: 100% ({total}/{total})")
     return _generator()
 
+def _start_heartbeat(interval_sec: int = 120):
+    """Emit periodic stdout to avoid CI log timeouts."""
+    stop = threading.Event()
+
+    def _beat():
+        while not stop.wait(interval_sec):
+            ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[heartbeat] {ts} UTC", flush=True)
+
+    t = threading.Thread(target=_beat, name="heartbeat", daemon=True)
+    t.start()
+    return stop
+
 from scipy import stats
 from sklearn.linear_model import Ridge
 
@@ -112,6 +125,7 @@ import logging
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 log_file = LOG_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+LOG_STDOUT = bool(int(os.getenv("LOG_STDOUT", "0"))) or os.getenv("GITHUB_ACTIONS", "").lower() == "true"
 handlers = []
 if rich_logging:
     handlers.append(rich_logging.RichHandler(rich_tracebacks=True, show_time=False, keywords=None))
@@ -119,6 +133,10 @@ file_handler = logging.FileHandler(log_file, encoding="utf-8")
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
 handlers.append(file_handler)
 fmt = "%(message)s" if rich_logging else "%(asctime)s %(levelname)s: %(message)s"
+if LOG_STDOUT:
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(logging.Formatter(fmt))
+    handlers.append(stream_handler)
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO").upper(),
                     format=fmt,
                     handlers=handlers)
@@ -2439,6 +2457,10 @@ def parse_args():
 
 def main():
     args = parse_args()
+    heartbeat_stop = None
+    enable_heartbeat = bool(int(os.getenv("LOG_HEARTBEAT", "0"))) or os.getenv("GITHUB_ACTIONS", "").lower() == "true"
+    if enable_heartbeat:
+        heartbeat_stop = _start_heartbeat(interval_sec=120)
     try:
         if args.run_all or args.auto or args.auto_live or args.live_only:
             run_all(args)
@@ -2448,6 +2470,9 @@ def main():
         log.exception("Unhandled exception")
         print(f"\n[Error] {e}")
         traceback.print_exc()
+    finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
 
 
 if __name__ == "__main__":
