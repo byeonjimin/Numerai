@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p logs
-          python numerai_signal_final.py --run-all &
+          python numerai_backup.py --auto &
           PID=$!
           LOG_FILE=""
           for i in {1..180}; do
