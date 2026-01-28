@@ -1,6 +1,6 @@
 
 
-import os, re, time, json, argparse, warnings, traceback, random, sys, threading
+import os, re, time, json, argparse, warnings, traceback, random
 from collections import deque
 from importlib import import_module
 from datetime import datetime, timedelta
@@ -115,8 +115,6 @@ log_file = LOG_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 handlers = []
 if rich_logging:
     handlers.append(rich_logging.RichHandler(rich_tracebacks=True, show_time=False, keywords=None))
-else:
-    handlers.append(logging.StreamHandler(stream=sys.stdout))
 file_handler = logging.FileHandler(log_file, encoding="utf-8")
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
 handlers.append(file_handler)
@@ -126,22 +124,6 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO").upper(),
                     handlers=handlers)
 log = logging.getLogger("signals")
 log.info(f"[logging] Streaming to {log_file}")
-
-def _start_log_heartbeat():
-    """Emit periodic logs to keep CI from timing out due to silence."""
-    try:
-        interval = int(os.getenv("LOG_HEARTBEAT_SECONDS", "0"))
-    except Exception:
-        interval = 0
-    if interval <= 0:
-        return
-    def _beat():
-        while True:
-            time.sleep(interval)
-            log.info("[heartbeat] still running")
-    threading.Thread(target=_beat, daemon=True).start()
-
-_start_log_heartbeat()
 
 
 def _get_opensignals_yahoo():

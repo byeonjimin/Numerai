@@ -13,13 +13,10 @@ concurrency:
 jobs:
   submit:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     env:
       NUMERAI_PUBLIC_ID: ${{ secrets.NUMERAI_PUBLIC_ID }}
       NUMERAI_SECRET_KEY: ${{ secrets.NUMERAI_SECRET_KEY }}
       NUMERAI_MODEL_NAME: ${{ secrets.NUMERAI_MODEL_NAME }}
-      PYTHONUNBUFFERED: "1"
-      LOG_HEARTBEAT_SECONDS: "120"
       YF_MAX_BATCH: "25"
       YF_MAX_RETRIES: "6"
       YF_BACKOFF_BASE: "2.0"
@@ -56,17 +53,3 @@ jobs:
       - name: Submit
         run: |
           python numerai_signal_final.py --run-all
-      - name: Dump last log on failure
-        if: failure()
-        run: |
-          if [ -d logs ]; then
-            LOG_FILE=$(ls -t logs/run_*.log 2>/dev/null | head -n 1)
-            if [ -n "$LOG_FILE" ]; then
-              echo "---- tail: $LOG_FILE ----"
-              tail -n 200 "$LOG_FILE"
-            else
-              echo "No run log found in logs/"
-            fi
-          else
-            echo "logs/ directory missing"
-          fi
