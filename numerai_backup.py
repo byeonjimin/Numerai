@@ -538,23 +538,40 @@ def setup_apis() -> Tuple[object, object, object, object, object]:
 
 # ----- datasets --------------------------------------------------------------
 
-def _load_or_download_dataset(napi, remote: str, local: str) -> pd.DataFrame:
+def _read_parquet_columns(local_path: Path, columns: Optional[List[str]] = None) -> pd.DataFrame:
+    if not columns:
+        return pd.read_parquet(local_path)
+    try:
+        import pyarrow.parquet as pq
+        schema = pq.ParquetFile(local_path).schema
+        available = set(schema.names)
+        cols = [c for c in columns if c in available]
+        if not cols:
+            return pd.read_parquet(local_path)
+        return pd.read_parquet(local_path, columns=cols)
+    except Exception as err:
+        log.warning(f"[data] Column-select read failed for {local_path.name}: {err}. Falling back to full read.")
+        return pd.read_parquet(local_path)
+
+
+def _load_or_download_dataset(napi, remote: str, local: str, columns: Optional[List[str]] = None) -> pd.DataFrame:
     local_path = Path(local)
     if local_path.exists():
         log.info(f"  Using cached dataset: {local_path.name}")
-        return pd.read_parquet(local_path)
+        return _read_parquet_columns(local_path, columns=columns)
     if not napi:
         raise RuntimeError(f"Dataset {remote} missing locally and Numerai API unavailable.")
     log.info(f"  Downloading {remote} -> {local_path.name}")
     napi.download_dataset(remote, local)
-    return pd.read_parquet(local_path)
+    return _read_parquet_columns(local_path, columns=columns)
 
 
 def download_live_data(napi) -> pd.DataFrame:
     return _load_or_download_dataset(
         napi,
         f"{DATA_VERSION}/live.parquet",
-        f"{DATA_VERSION.replace('/','_')}_live.parquet"
+        f"{DATA_VERSION.replace('/','_')}_live.parquet",
+        columns=["numerai_ticker", "date", "friday_date"]
     )
 
 
@@ -563,24 +580,28 @@ def download_numerai_data(napi):
     train = _load_or_download_dataset(
         napi,
         f"{DATA_VERSION}/train.parquet",
-        f"{DATA_VERSION.replace('/','_')}_train.parquet"
+        f"{DATA_VERSION.replace('/','_')}_train.parquet",
+        columns=["numerai_ticker", "date", "target"]
     )
     valid = _load_or_download_dataset(
         napi,
         f"{DATA_VERSION}/validation.parquet",
-        f"{DATA_VERSION.replace('/','_')}_validation.parquet"
+        f"{DATA_VERSION.replace('/','_')}_validation.parquet",
+        columns=["numerai_ticker", "date", "target"]
     )
     live = download_live_data(napi)
     t_weights = _load_or_download_dataset(
         napi,
         f"{DATA_VERSION}/train_sample_weights.parquet",
-        f"{DATA_VERSION.replace('/','_')}_train_sample_weights.parquet"
+        f"{DATA_VERSION.replace('/','_')}_train_sample_weights.parquet",
+        columns=["numerai_ticker", "date", "sample_weight", "sample_weights"]
     )
     try:
         v_weights = _load_or_download_dataset(
             napi,
             f"{DATA_VERSION}/validation_sample_weights.parquet",
-            f"{DATA_VERSION.replace('/','_')}_validation_sample_weights.parquet"
+            f"{DATA_VERSION.replace('/','_')}_validation_sample_weights.parquet",
+            columns=["numerai_ticker", "date", "sample_weight", "sample_weights"]
         )
     except Exception:
         v_weights = pd.DataFrame()
