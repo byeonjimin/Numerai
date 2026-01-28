@@ -2467,6 +2467,28 @@ def run_all(args):
             log.warning(f"[auto] Failed to update submission state: {err}")
 
 
+def prep_cache(args):
+    """Download datasets + price/meta/social caches, then exit."""
+    print("\n" + "="*80)
+    print("NUMERAI SIGNALS v7.5 - CACHE PREP")
+    print("="*80)
+    napi, reddit, newsapi, pytrends, analyzer = setup_apis()
+    train, valid, live, t_weights, v_weights = download_numerai_data(napi)
+    tmap = create_ticker_map(live)
+    meta = add_sector_mcap_meta(tmap)
+    if ENABLE_SOCIAL_FEATURES:
+        _ = get_historical_social_signals_cached(
+            tmap,
+            pytrends,
+            meta,
+            refresh_social=getattr(args, "refresh_social_cache", False)
+        )
+    else:
+        log.info("[prep] Skipping historical social signals (disabled).")
+    _ = get_price_data_cached(tmap)
+    log.info("[prep] Cache warm-up complete.")
+
+
 # ----- CLI -------------------------------------------------------------------
 
 def parse_args():
@@ -2476,6 +2498,7 @@ def parse_args():
     ap.add_argument("--force-submit", action="store_true", help="Force run/upload even if already submitted.")
     ap.add_argument("--auto-live", action="store_true", help="Auto-run on new era and only submit live (skip diagnostics).")
     ap.add_argument("--live-only", action="store_true", help="Skip diagnostics/backtests and only submit live.")
+    ap.add_argument("--prep-cache", action="store_true", help="Download datasets + caches, then exit.")
     ap.add_argument("--refresh-social-cache", action="store_true", help="Force social-data refresh (slow).")
     ap.add_argument("--no-upload", action="store_true", help="Do not upload to Numerai; only save files.")
     ap.add_argument("--full-diag-off", action="store_true", help="Disable FULL diagnostics build.")
@@ -2489,10 +2512,12 @@ def main():
     if enable_heartbeat:
         heartbeat_stop = _start_heartbeat(interval_sec=120)
     try:
-        if args.run_all or args.auto or args.auto_live or args.live_only:
+        if args.prep_cache:
+            prep_cache(args)
+        elif args.run_all or args.auto or args.auto_live or args.live_only:
             run_all(args)
         else:
-            print("Select a mode: --run-all, --auto, --auto-live, or --live-only")
+            print("Select a mode: --run-all, --auto, --auto-live, --live-only, or --prep-cache")
     except Exception as e:
         log.exception("Unhandled exception")
         print(f"\n[Error] {e}")
