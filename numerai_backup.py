@@ -1438,10 +1438,6 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
     log.info("    [6e] Building interaction & sector-relative features (Era-chunked)...")
     
     # Initialize implementation for memory optimization (chunked by Era/Friday)
-    
-    # [OPTIMIZATION] Convert sector to category for lighter groupby
-    if 'sector' in df.columns and df['sector'].dtype == 'object':
-        df['sector'] = df['sector'].astype('category')
         
     rel_cols = []
     base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
