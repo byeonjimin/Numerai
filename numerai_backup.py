@@ -1405,9 +1405,9 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
             sf = list(social_feature_cols)
     else:
         log.info("    [6d] Skipping historical social composites (disabled or empty).")
-    log.info("    [6e] Building interaction & sector-relative features (chunked)...")
+    log.info("    [6e] Building interaction & sector-relative features (Era-chunked)...")
     
-    # Initialize implementation for memory optimization (chunked by year)
+    # Initialize implementation for memory optimization (chunked by Era/Friday)
     rel_cols = []
     base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
     targets = [c for c in base_candidates if c in df.columns]
@@ -1419,41 +1419,47 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
             rel_cols.append(rel_name)
             df[rel_name] = np.nan
 
-        # Process by year to reduce memory pressure
-        # Note: friday_date is always within a single year, so grouping by year is safe
-        years = df['date'].dt.year.unique()
-        years.sort()
+        # Process by Era (Friday Date) to reduce memory pressure to the absolute minimum
+        # Grouping by date+sector within a single date is effectively just grouping by sector
+        dates = df['friday_date'].unique()
+        try:
+            dates.sort()
+        except Exception:
+            pass # fallback if sort fails (e.g. mixed types, unlikely)
         
-        for year in years:
-            mask = (df['date'].dt.year == year)
+        # Determine strict or permissive mode based on environment
+        # Use simple iteration for robustness
+        total_eras = len(dates)
+        
+        for idx, dt in enumerate(dates):
+            mask = (df['friday_date'] == dt)
             if not mask.any():
                 continue
             
-            # Create a view/copy for the year
-            # We must be careful: we need to update the original df
-            # Using loc with mask on the left side is safe
-            
-            # Work on a subset to ensure minimal peak memory
+            # Create a view/copy for the era
             sub = df.loc[mask, ['friday_date', 'sector'] + targets].copy()
             sector_group = sub.groupby(['friday_date', 'sector'])
             
             for base in targets:
                 rel_name = f"{base}_sector_rel"
                 try:
-                    # Calculate transform on subset
-                    # The Result index will match sub.index
                     mean_vals = sector_group[base].transform('mean')
                     sub[rel_name] = sub[base] - mean_vals
                 except Exception:
                     sub[rel_name] = 0.0
             
             # Update original dataframe
-            # This assignment aligns by index
             df.loc[mask, rel_cols] = sub[rel_cols]
             
             # Explicit cleanup
             del sub, sector_group
-            gc.collect()
+            # Aggressive GC every era might be slow, but safe. 
+            # Tune: GC every 5 eras? No, safety first.
+            if idx % 5 == 0:
+                gc.collect()
+        
+        # Final GC
+        gc.collect()
             
     # Fallback/fill for safety (though initialization was nan)
     for col in rel_cols:
