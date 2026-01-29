@@ -1,6 +1,6 @@
 
 
-import os, re, time, json, argparse, warnings, traceback, sys, threading, random
+import os, re, time, json, argparse, warnings, traceback, sys, threading, random, gc
 from collections import deque
 from importlib import import_module
 from datetime import datetime, timedelta
@@ -1405,17 +1405,59 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
             sf = list(social_feature_cols)
     else:
         log.info("    [6d] Skipping historical social composites (disabled or empty).")
-    log.info("    [6e] Building interaction & sector-relative features...")
-    sector_group = df.groupby(['friday_date','sector'])
+    log.info("    [6e] Building interaction & sector-relative features (chunked)...")
+    
+    # Initialize implementation for memory optimization (chunked by year)
     rel_cols = []
-    for base in ['return_20d','return_60d','momentum_20','volatility_20d']:
-        if base in df.columns:
+    base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
+    targets = [c for c in base_candidates if c in df.columns]
+    
+    if targets:
+        # Pre-allocate columns to avoid fragmentation
+        for base in targets:
             rel_name = f"{base}_sector_rel"
             rel_cols.append(rel_name)
-            try:
-                df[rel_name] = df[base] - sector_group[base].transform('mean')
-            except Exception:
-                df[rel_name] = 0.0
+            df[rel_name] = np.nan
+
+        # Process by year to reduce memory pressure
+        # Note: friday_date is always within a single year, so grouping by year is safe
+        years = df['date'].dt.year.unique()
+        years.sort()
+        
+        for year in years:
+            mask = (df['date'].dt.year == year)
+            if not mask.any():
+                continue
+            
+            # Create a view/copy for the year
+            # We must be careful: we need to update the original df
+            # Using loc with mask on the left side is safe
+            
+            # Work on a subset to ensure minimal peak memory
+            sub = df.loc[mask, ['friday_date', 'sector'] + targets].copy()
+            sector_group = sub.groupby(['friday_date', 'sector'])
+            
+            for base in targets:
+                rel_name = f"{base}_sector_rel"
+                try:
+                    # Calculate transform on subset
+                    # The Result index will match sub.index
+                    mean_vals = sector_group[base].transform('mean')
+                    sub[rel_name] = sub[base] - mean_vals
+                except Exception:
+                    sub[rel_name] = 0.0
+            
+            # Update original dataframe
+            # This assignment aligns by index
+            df.loc[mask, rel_cols] = sub[rel_cols]
+            
+            # Explicit cleanup
+            del sub, sector_group
+            gc.collect()
+            
+    # Fallback/fill for safety (though initialization was nan)
+    for col in rel_cols:
+        df[col] = df[col].fillna(0.0)
     pf.extend(rel_cols + price_rank_cols)
     feats = pf + sf
     df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)
