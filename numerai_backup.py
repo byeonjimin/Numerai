@@ -1408,6 +1408,11 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
     log.info("    [6e] Building interaction & sector-relative features (Era-chunked)...")
     
     # Initialize implementation for memory optimization (chunked by Era/Friday)
+    
+    # [OPTIMIZATION] Convert sector to category for lighter groupby
+    if 'sector' in df.columns and df['sector'].dtype == 'object':
+        df['sector'] = df['sector'].astype('category')
+        
     rel_cols = []
     base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
     targets = [c for c in base_candidates if c in df.columns]
@@ -1466,7 +1471,24 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
         df[col] = df[col].fillna(0.0)
     pf.extend(rel_cols + price_rank_cols)
     feats = pf + sf
-    df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)
+    
+    # [OPTIMIZATION] Iterative cleanup instead of bulk copy
+    # df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)  <-- Deleted
+    
+    log.info("    [6f] Cleaning features iteratively...")
+    for i, col in enumerate(feats):
+        # In-place clean to avoid copying 50 columns at once
+        if col in df.columns:
+            # efficient 2-step
+            df[col] = df[col].fillna(0.0)
+            # using numpy for fast inf check
+            m_inf = np.isinf(df[col])
+            if m_inf.any():
+                df.loc[m_inf, col] = 0.0
+        
+        if i % 10 == 0:
+            gc.collect()
+
     if NEUTRALIZE_FEATURES:
         df = neutralize_features_cross_sectional(df, feats)
     df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
