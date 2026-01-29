@@ -1501,8 +1501,7 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
         df[col] = df[col].fillna(0.0)
     pf.extend(rel_cols + price_rank_cols)
     feats = pf + sf
-    pf.extend(rel_cols + price_rank_cols)
-    feats = pf + sf
+
     
     if finalize:
         df = _finalize_features(df, feats)
