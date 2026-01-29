@@ -1285,9 +1285,39 @@ def _apply_opensignals_feature_templates(df: pd.DataFrame) -> Tuple[pd.DataFrame
     return df, feature_cols
 
 
+def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
+    """Perform final cleanup (fillna/replace inf/neutralization) on features."""
+    log.info("    [6f] Finalizing features (cleanup & neutralization)...")
+    
+    # [OPTIMIZATION] Iterative cleanup instead of bulk copy
+    # df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)
+    
+    log.info("        Cleaning features iterative loop...")
+    for i, col in enumerate(feats):
+        # In-place clean to avoid copying columns
+        if col in df.columns:
+            # efficient 2-step
+            df[col] = df[col].fillna(0.0)
+            # using numpy for fast inf check
+            m_inf = np.isinf(df[col])
+            if m_inf.any():
+                df.loc[m_inf, col] = 0.0
+        
+        if i % 10 == 0:
+            gc.collect()
+
+    if NEUTRALIZE_FEATURES:
+        df = neutralize_features_cross_sectional(df, feats)
+    
+    df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
+    log.info("        Feature assembly complete.")
+    return df
+
+
 def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
                    hist_social: pd.DataFrame, meta: pd.DataFrame,
-                   recent_media: Optional[pd.DataFrame]=None) -> Tuple[pd.DataFrame, List[str]]:
+                   recent_media: Optional[pd.DataFrame]=None,
+                   finalize: bool=True) -> Tuple[pd.DataFrame, List[str]]:
     log.info("    [6a] Merging price/meta & generating base features...")
     df = price_df.merge(tmap, on='yahoo_ticker', how='inner').sort_values(['numerai_ticker','date'])
     meta_cols = [c for c in ['yahoo_ticker','sector'] if c in meta.columns]
@@ -1471,40 +1501,31 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
         df[col] = df[col].fillna(0.0)
     pf.extend(rel_cols + price_rank_cols)
     feats = pf + sf
+    pf.extend(rel_cols + price_rank_cols)
+    feats = pf + sf
     
-    # [OPTIMIZATION] Iterative cleanup instead of bulk copy
-    # df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)  <-- Deleted
-    
-    log.info("    [6f] Cleaning features iteratively...")
-    for i, col in enumerate(feats):
-        # In-place clean to avoid copying 50 columns at once
-        if col in df.columns:
-            # efficient 2-step
-            df[col] = df[col].fillna(0.0)
-            # using numpy for fast inf check
-            m_inf = np.isinf(df[col])
-            if m_inf.any():
-                df.loc[m_inf, col] = 0.0
+    if finalize:
+        df = _finalize_features(df, feats)
+    else:
+        log.info("    [6f] Skipping final cleanup (deferred mode).")
         
-        if i % 10 == 0:
-            gc.collect()
-
-    if NEUTRALIZE_FEATURES:
-        df = neutralize_features_cross_sectional(df, feats)
-    df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
-    log.info("    [6f] Feature assembly complete.")
     return df, feats
 
 
 def create_training_frame(price_df, tmap, hist_social, meta, train_df, weights_df, recent_media=None):
     log.info("[6/10] Creating features for training (v7.5)")
-    feat_df, feats = merge_features(price_df, tmap, hist_social, meta, recent_media)
+    # Defer cleanup to save memory (operate on daily rows without cleaning first)
+    feat_df, feats = merge_features(price_df, tmap, hist_social, meta, recent_media, finalize=False)
     log.info("    [6f+] Collapsing daily rows to Friday snapshots...")
     before_rows = len(feat_df)
     feat_df = feat_df.sort_values(['numerai_ticker','date']).drop_duplicates(
         ['numerai_ticker','friday_date'], keep='last'
     )
     log.info(f"        Rows reduced: {before_rows:,} -> {len(feat_df):,}")
+    
+    # Now cleanup on the reduced set
+    feat_df = _finalize_features(feat_df, feats)
+    
     log.info("    [6g] Dropping sparse tickers...")
     keep = []
     for t, g in feat_df.groupby('numerai_ticker'):
