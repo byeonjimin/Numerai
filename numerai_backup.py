@@ -1292,8 +1292,14 @@ def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
     # Ensure keys for neutralization exist
     if 'sector' not in df.columns:
         df['sector'] = 'UNK'
+    else:
+        # CRITICAL: Fill 'UNK' to ensure no rows are dropped/NaN'd during groupby
+        df['sector'] = df['sector'].fillna('UNK')
+        
     if 'size_bucket' not in df.columns:
         df['size_bucket'] = -1
+    else:
+        df['size_bucket'] = df['size_bucket'].fillna(0) # merge_features uses 0 for fillna
         
     # Group keys for neutralization (within an era)
     neu_keys = ['sector', 'size_bucket']
@@ -1470,55 +1476,23 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
     targets = [c for c in base_candidates if c in df.columns]
     
     if targets:
-        # Pre-allocate columns to avoid fragmentation
+        # Use Global GroupBy (Original Logic) - relying on GitHub Actions memory being sufficient
+        # [6e] interactions
+        log.info("    [6e] Building interaction & sector-relative features (Global)...")
+        # Ensure sector is filled for global groupby
+        df['sector'] = df['sector'].fillna('UNK')
+        sector_group = df.groupby(['friday_date','sector'])
+        
         for base in targets:
             rel_name = f"{base}_sector_rel"
             rel_cols.append(rel_name)
-            df[rel_name] = np.nan
-
-        # Process by Era (Friday Date) to reduce memory pressure to the absolute minimum
-        # Grouping by date+sector within a single date is effectively just grouping by sector
-        dates = df['friday_date'].unique()
-        try:
-            dates.sort()
-        except Exception:
-            pass # fallback if sort fails (e.g. mixed types, unlikely)
-        
-        # Determine strict or permissive mode based on environment
-        # Use simple iteration for robustness
-        total_eras = len(dates)
-        
-        for idx, dt in enumerate(dates):
-            mask = (df['friday_date'] == dt)
-            if not mask.any():
-                continue
-            
-            # Create a view/copy for the era
-            sub = df.loc[mask, ['friday_date', 'sector'] + targets].copy()
-            sector_group = sub.groupby(['friday_date', 'sector'])
-            
-            for base in targets:
-                rel_name = f"{base}_sector_rel"
-                try:
-                    mean_vals = sector_group[base].transform('mean')
-                    sub[rel_name] = sub[base] - mean_vals
-                except Exception:
-                    sub[rel_name] = 0.0
-            
-            # Update original dataframe
-            df.loc[mask, rel_cols] = sub[rel_cols]
-            
-            # Explicit cleanup
-            del sub, sector_group
-            # Aggressive GC every era might be slow, but safe. 
-            # Tune: GC every 5 eras? No, safety first.
-            if idx % 5 == 0:
-                gc.collect()
-        
-        # Final GC
-        gc.collect()
-            
-    # Fallback/fill for safety (though initialization was nan)
+            try:
+                mean_vals = sector_group[base].transform('mean')
+                df[rel_name] = df[base] - mean_vals
+            except Exception:
+                df[rel_name] = 0.0
+                
+    # Fallback/fill for safety
     for col in rel_cols:
         df[col] = df[col].fillna(0.0)
     pf.extend(rel_cols + price_rank_cols)
