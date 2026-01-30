@@ -1286,29 +1286,55 @@ def _apply_opensignals_feature_templates(df: pd.DataFrame) -> Tuple[pd.DataFrame
 
 
 def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
-    """Perform final cleanup (fillna/replace inf/neutralization) on features."""
-    log.info("    [6f] Finalizing features (cleanup & neutralization)...")
+    """Perform final cleanup (fillna/replace inf/neutralization) on features using Era-wise iteration."""
+    log.info("    [6f] Finalizing features (Era-Iterative Cleanup & Neutralization)...")
     
-    # [OPTIMIZATION] Iterative cleanup instead of bulk copy
-    # df[feats] = df[feats].fillna(0).replace([np.inf,-np.inf],0)
-    
-    log.info("        Cleaning features iterative loop...")
-    for i, col in enumerate(feats):
-        # In-place clean to avoid copying columns
-        if col in df.columns:
-            # efficient 2-step
-            df[col] = df[col].fillna(0.0)
-            # using numpy for fast inf check
-            m_inf = np.isinf(df[col])
-            if m_inf.any():
-                df.loc[m_inf, col] = 0.0
+    # Ensure keys for neutralization exist
+    if 'sector' not in df.columns:
+        df['sector'] = 'UNK'
+    if 'size_bucket' not in df.columns:
+        df['size_bucket'] = -1
         
-        if i % 10 == 0:
-            gc.collect()
-
-    if NEUTRALIZE_FEATURES:
-        df = neutralize_features_cross_sectional(df, feats)
+    # Group keys for neutralization (within an era)
+    neu_keys = ['sector', 'size_bucket']
     
+    dates = df['friday_date'].unique()
+    try:
+        dates.sort()
+    except:
+        pass
+        
+    for i, dt in enumerate(dates):
+        mask = (df['friday_date'] == dt)
+        if not mask.any():
+            continue
+            
+        # Work on a copy of the Era (Daily rows for this Friday)
+        # This is memory safe (one era at a time) and restores Daily Neutralization logic
+        sub = df.loc[mask, feats + neu_keys].copy()
+        
+        # 1. Cleanup (FillNa/Inf) - Bulk is safe on small era chunk
+        sub[feats] = sub[feats].fillna(0.0).replace([np.inf, -np.inf], 0.0)
+        
+        # 2. Neutralize
+        if NEUTRALIZE_FEATURES:
+            # Group by sector/size WITHIN this era
+            grouped = sub.groupby(neu_keys)
+            for c in feats:
+                # Subtract group mean
+                # Note: this uses Daily samples to compute mean (canonical logic)
+                try:
+                    sub[c] = sub[c] - grouped[c].transform('mean')
+                except Exception:
+                    pass # Keep original if fail
+                    
+        # 3. Update Original DataFrame
+        df.loc[mask, feats] = sub[feats]
+        
+        del sub, grouped
+        if i % 5 == 0:
+            gc.collect()
+            
     df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
     log.info("        Feature assembly complete.")
     return df
@@ -1509,8 +1535,9 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
 
 def create_training_frame(price_df, tmap, hist_social, meta, train_df, weights_df, recent_media=None):
     log.info("[6/10] Creating features for training (v7.5)")
-    # Defer cleanup to save memory (operate on daily rows without cleaning first)
-    feat_df, feats = merge_features(price_df, tmap, hist_social, meta, recent_media, finalize=False)
+    # Restore standard flow (finalize=True) to ensure clean features before row reduction
+    feat_df, feats = merge_features(price_df, tmap, hist_social, meta, recent_media, finalize=True)
+    
     log.info("    [6f+] Collapsing daily rows to Friday snapshots...")
     before_rows = len(feat_df)
     feat_df = feat_df.sort_values(['numerai_ticker','date']).drop_duplicates(
@@ -1518,8 +1545,7 @@ def create_training_frame(price_df, tmap, hist_social, meta, train_df, weights_d
     )
     log.info(f"        Rows reduced: {before_rows:,} -> {len(feat_df):,}")
     
-    # Now cleanup on the reduced set
-    feat_df = _finalize_features(feat_df, feats)
+    # Cleanup was already done in merge_features (Iteratively)
     
     log.info("    [6g] Dropping sparse tickers...")
     keep = []
