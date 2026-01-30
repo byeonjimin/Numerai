@@ -1302,7 +1302,9 @@ def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
         df['size_bucket'] = df['size_bucket'].fillna(0) # merge_features uses 0 for fillna
         
     # Group keys for neutralization (within an era)
-    neu_keys = ['sector', 'size_bucket']
+    # CRITICAL FIX: Must include 'date' to perform DAILY neutralization within the Era chunk.
+    # Grouping only by sector/size mixes Mon-Fri data, destroying the signal.
+    neu_keys = ['date', 'sector', 'size_bucket']
     
     dates = df['friday_date'].unique()
     try:
@@ -1316,7 +1318,7 @@ def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
             continue
             
         # Work on a copy of the Era (Daily rows for this Friday)
-        # This is memory safe (one era at a time) and restores Daily Neutralization logic
+        # Must include 'date' in the projection for groupby
         sub = df.loc[mask, feats + neu_keys].copy()
         
         # 1. Cleanup (FillNa/Inf) - Bulk is safe on small era chunk
