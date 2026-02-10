@@ -1285,63 +1285,66 @@ def _apply_opensignals_feature_templates(df: pd.DataFrame) -> Tuple[pd.DataFrame
     return df, feature_cols
 
 
+
 def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
-    """Perform final cleanup (fillna/replace inf/neutralization) on features using Era-wise iteration."""
-    log.info("    [6f] Finalizing features (Era-Iterative Cleanup & Neutralization)...")
+    """Perform final cleanup and neutralization In-Place (Memory Optimized)."""
+    log.info("    [6f] Finalizing features (Global In-Place)...")
     
-    # Ensure keys for neutralization exist
-    if 'sector' not in df.columns:
-        df['sector'] = 'UNK'
-    else:
-        # CRITICAL: Fill 'UNK' to ensure no rows are dropped/NaN'd during groupby
-        df['sector'] = df['sector'].fillna('UNK')
-        
-    if 'size_bucket' not in df.columns:
-        df['size_bucket'] = -1
-    else:
-        df['size_bucket'] = df['size_bucket'].fillna(0) # merge_features uses 0 for fillna
-        
-    # Group keys for neutralization (within an era)
-    # CRITICAL FIX: Must include 'date' to perform DAILY neutralization within the Era chunk.
-    # Grouping only by sector/size mixes Mon-Fri data, destroying the signal.
-    neu_keys = ['date', 'sector', 'size_bucket']
-    
-    dates = df['friday_date'].unique()
-    try:
-        dates.sort()
-    except:
-        pass
-        
-    for i, dt in enumerate(dates):
-        mask = (df['friday_date'] == dt)
-        if not mask.any():
-            continue
+    # 1. Iterative Cleanup (FillNa/Inf)
+    # Avoids creating a full copy of the dataframe
+    log.info("        Cleaning features (Iterative)...")
+    for i, col in enumerate(feats):
+        if col in df.columns:
+            # Check for infs first to avoid copy if not needed?
+            # Assigning to slice is efficient in pandas 2.x+ usually
+            df[col] = df[col].fillna(0.0).replace([np.inf, -np.inf], 0.0)
             
-        # Work on a copy of the Era (Daily rows for this Friday)
-        # Must include 'date' in the projection for groupby
-        sub = df.loc[mask, feats + neu_keys].copy()
-        
-        # 1. Cleanup (FillNa/Inf) - Bulk is safe on small era chunk
-        sub[feats] = sub[feats].fillna(0.0).replace([np.inf, -np.inf], 0.0)
-        
-        # 2. Neutralize
-        if NEUTRALIZE_FEATURES:
-            # Group by sector/size WITHIN this era
-            grouped = sub.groupby(neu_keys)
-            for c in feats:
-                # Subtract group mean
-                # Note: this uses Daily samples to compute mean (canonical logic)
-                try:
-                    sub[c] = sub[c] - grouped[c].transform('mean')
-                except Exception:
-                    pass # Keep original if fail
-                    
-        # 3. Update Original DataFrame
-        df.loc[mask, feats] = sub[feats]
-        
-        del sub, grouped
-        if i % 5 == 0:
+        if i % 10 == 0:
             gc.collect()
+
+    # 2. Global Neutralization (In-Place)
+    # The original function `neutralize_features_cross_sectional` forces a copy.
+    # We re-implement it here IN-PLACE to save memory.
+    if NEUTRALIZE_FEATURES:
+        log.info("        Neutralizing features (Global In-Place)...")
+        
+        # Ensure keys exist
+        if 'sector' not in df.columns:
+            df['sector'] = 'UNK'
+        else:
+            df['sector'] = df['sector'].fillna('UNK')
+            
+        if 'size_bucket' not in df.columns:
+            df['size_bucket'] = -1
+        else:
+            df['size_bucket'] = df['size_bucket'].fillna(0) # Standard fallback
+            
+        # Standard Keys: Friday Date (Era) + Sector + Size
+        # This matches the Original Logic exactly.
+        neu_keys = ['friday_date', 'sector', 'size_bucket']
+        
+        # Pre-compute GroupBy object (checking memory impact?)
+        # GroupBy itself is light (index map).
+        grouped = df.groupby(neu_keys)
+        
+        for i, c in enumerate(feats):
+            if c in df.columns:
+                try:
+                    # Transform returns a Series aligned to df.index
+                    # In-place subtraction
+                    mean_val = grouped[c].transform('mean')
+                    df[c] = df[c] - mean_val
+                    
+                    # Explicit cleanup of the temporary series
+                    del mean_val
+                except Exception:
+                    pass
+            
+            if i % 5 == 0:
+                gc.collect()
+         
+        del grouped
+        gc.collect()
             
     df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
     log.info("        Feature assembly complete.")
