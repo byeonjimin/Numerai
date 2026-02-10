@@ -1440,7 +1440,12 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
             sf = list(social_feature_cols)
     else:
         log.info("    [6d] Skipping historical social composites (disabled or empty).")
-        
+
+    # [Re-Adding Initialization for Standard Logic]
+    rel_cols = []
+    base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
+    targets = [c for c in base_candidates if c in df.columns]
+
     if targets:
         # Standard Global Interaction Features
         log.info("    [6e] Building interaction & sector-relative features (Global)...")
