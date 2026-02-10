@@ -1319,9 +1319,9 @@ def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
         else:
             df['size_bucket'] = df['size_bucket'].fillna(0) # Standard fallback
             
-        # Standard Keys: Friday Date (Era) + Sector + Size
-        # This matches the Original Logic exactly.
-        neu_keys = ['friday_date', 'sector', 'size_bucket']
+        # Standard Keys: Date (Daily) + Sector + Size
+        # CRITICAL FIX: Use 'date' (Daily) instead of 'friday_date' (Weekly) to avoid signal mixing/lookahead.
+        neu_keys = ['date', 'sector', 'size_bucket']
         
         # Pre-compute GroupBy object (checking memory impact?)
         # GroupBy itself is light (index map).
@@ -1472,9 +1472,6 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
             sf = list(social_feature_cols)
     else:
         log.info("    [6d] Skipping historical social composites (disabled or empty).")
-    log.info("    [6e] Building interaction & sector-relative features (Era-chunked)...")
-    
-    # Initialize implementation for memory optimization (chunked by Era/Friday)
         
     rel_cols = []
     base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
@@ -1486,7 +1483,9 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
         log.info("    [6e] Building interaction & sector-relative features (Global)...")
         # Ensure sector is filled for global groupby
         df['sector'] = df['sector'].fillna('UNK')
-        sector_group = df.groupby(['friday_date','sector'])
+        
+        # CRITICAL FIX: Group by 'date' (Daily) to avoid lookahead bias of 'friday_date' (Weekly)
+        sector_group = df.groupby(['date','sector'])
         
         for base in targets:
             rel_name = f"{base}_sector_rel"
