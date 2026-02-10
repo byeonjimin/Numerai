@@ -2581,11 +2581,18 @@ def parse_args():
     ap.add_argument("--refresh-social-cache", action="store_true", help="Force social-data refresh (slow).")
     ap.add_argument("--no-upload", action="store_true", help="Do not upload to Numerai; only save files.")
     ap.add_argument("--full-diag-off", action="store_true", help="Disable FULL diagnostics build.")
+    ap.add_argument("--model-name", type=str, help="Explicitly specify the Numerai model name (overrides env var).")
     return ap.parse_args()
 
 
 def main():
     args = parse_args()
+    
+    # [Override] Model Name from flag
+    if args.model_name:
+        DEFAULTS["NUMERAI_MODEL_NAME"] = args.model_name.strip()
+        log.info(f"[main] Model name overridden via CLI: {DEFAULTS['NUMERAI_MODEL_NAME']}")
+
     heartbeat_stop = None
     enable_heartbeat = bool(int(os.getenv("LOG_HEARTBEAT", "0"))) or os.getenv("GITHUB_ACTIONS", "").lower() == "true"
     if enable_heartbeat:
