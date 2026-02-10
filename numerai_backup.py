@@ -1286,69 +1286,37 @@ def _apply_opensignals_feature_templates(df: pd.DataFrame) -> Tuple[pd.DataFrame
 
 
 
-def _finalize_features(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
-    """Perform final cleanup and neutralization In-Place (Memory Optimized)."""
-    log.info("    [6f] Finalizing features (Global In-Place)...")
+def neutralize_features_cross_sectional(df: pd.DataFrame, feats: List[str]) -> pd.DataFrame:
+    """Standard Global Neutralization (Memory Intensive but Accurate)."""
+    # Ensure keys exist
+    if 'sector' not in df.columns:
+        df['sector'] = 'UNK'
+    else:
+        df['sector'] = df['sector'].fillna('UNK')
+        
+    if 'size_bucket' not in df.columns:
+        df['size_bucket'] = -1
+    else:
+        df['size_bucket'] = df['size_bucket'].fillna(0)
+        
+    # Standard Keys: Date (Daily) + Sector + Size (Correct Logic)
+    neu_keys = ['date', 'sector', 'size_bucket']
     
-    # 1. Iterative Cleanup (FillNa/Inf)
-    # Avoids creating a full copy of the dataframe
-    log.info("        Cleaning features (Iterative)...")
-    for i, col in enumerate(feats):
-        if col in df.columns:
-            # Check for infs first to avoid copy if not needed?
-            # Assigning to slice is efficient in pandas 2.x+ usually
-            df[col] = df[col].fillna(0.0).replace([np.inf, -np.inf], 0.0)
-            
-        if i % 10 == 0:
-            gc.collect()
-
-    # 2. Global Neutralization (In-Place)
-    # The original function `neutralize_features_cross_sectional` forces a copy.
-    # We re-implement it here IN-PLACE to save memory.
-    if NEUTRALIZE_FEATURES:
-        log.info("        Neutralizing features (Global In-Place)...")
-        
-        # Ensure keys exist
-        if 'sector' not in df.columns:
-            df['sector'] = 'UNK'
-        else:
-            df['sector'] = df['sector'].fillna('UNK')
-            
-        if 'size_bucket' not in df.columns:
-            df['size_bucket'] = -1
-        else:
-            df['size_bucket'] = df['size_bucket'].fillna(0) # Standard fallback
-            
-        # Standard Keys: Date (Daily) + Sector + Size
-        # CRITICAL FIX: Use 'date' (Daily) instead of 'friday_date' (Weekly) to avoid signal mixing/lookahead.
-        neu_keys = ['date', 'sector', 'size_bucket']
-        
-        # Pre-compute GroupBy object (checking memory impact?)
-        # GroupBy itself is light (index map).
-        grouped = df.groupby(neu_keys)
-        
-        for i, c in enumerate(feats):
-            if c in df.columns:
-                try:
-                    # Transform returns a Series aligned to df.index
-                    # In-place subtraction
-                    mean_val = grouped[c].transform('mean')
-                    df[c] = df[c] - mean_val
-                    
-                    # Explicit cleanup of the temporary series
-                    del mean_val
-                except Exception:
-                    pass
-            
-            if i % 5 == 0:
-                gc.collect()
-         
-        del grouped
-        gc.collect()
-            
-    df.drop(['volume_ma20'], axis=1, errors='ignore', inplace=True)
-    log.info("        Feature assembly complete.")
+    # Global Transformation (Uses Copy implicitly or explicitly)
+    # This matches the canonical logic.
+    grouped = df.groupby(neu_keys)
+    
+    for c in feats:
+        if c in df.columns:
+            try:
+                df[c] = df[c] - grouped[c].transform('mean')
+            except Exception:
+                pass
+                
     return df
+
+# Removed _finalize_features global in-place version to avoid confusion.
+# Logic moved back to merge_features or neutralize_features_cross_sectional.
 
 
 def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
@@ -1473,18 +1441,13 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
     else:
         log.info("    [6d] Skipping historical social composites (disabled or empty).")
         
-    rel_cols = []
-    base_candidates = ['return_20d','return_60d','momentum_20','volatility_20d']
-    targets = [c for c in base_candidates if c in df.columns]
-    
     if targets:
-        # Use Global GroupBy (Original Logic) - relying on GitHub Actions memory being sufficient
-        # [6e] interactions
+        # Standard Global Interaction Features
         log.info("    [6e] Building interaction & sector-relative features (Global)...")
-        # Ensure sector is filled for global groupby
+        # Ensure sector is filled
         df['sector'] = df['sector'].fillna('UNK')
         
-        # CRITICAL FIX: Group by 'date' (Daily) to avoid lookahead bias of 'friday_date' (Weekly)
+        # Global GroupBy by Date (Daily) - Correct Logic
         sector_group = df.groupby(['date','sector'])
         
         for base in targets:
@@ -1502,12 +1465,17 @@ def merge_features(price_df: pd.DataFrame, tmap: pd.DataFrame,
     pf.extend(rel_cols + price_rank_cols)
     feats = pf + sf
 
-    
     if finalize:
-        df = _finalize_features(df, feats)
-    else:
-        log.info("    [6f] Skipping final cleanup (deferred mode).")
+        # Standard Cleanup
+        log.info("    [6f] Finalizing features (Standard Cleanup & Neutralization)...")
+        # 1. FillNA / Inf
+        df[feats] = df[feats].fillna(0.0).replace([np.inf, -np.inf], 0.0)
         
+        # 2. Neutralize (Global)
+        if NEUTRALIZE_FEATURES:
+            log.info("        Neutralizing features (Standard Global)...")
+            df = neutralize_features_cross_sectional(df, feats)
+            
     return df, feats
 
 
