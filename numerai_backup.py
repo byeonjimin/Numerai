@@ -1300,7 +1300,9 @@ def neutralize_features_cross_sectional(df: pd.DataFrame, feats: List[str]) -> p
         df['size_bucket'] = df['size_bucket'].fillna(0)
         
     # Standard Keys: Date (Daily) + Sector + Size (Correct Logic)
-    neu_keys = ['date', 'sector', 'size_bucket']
+    # Check if 'date' exists (Daily), otherwise fallback to 'friday_date' (Weekly)
+    date_col = 'date' if 'date' in df.columns else 'friday_date'
+    neu_keys = [date_col, 'sector', 'size_bucket']
     
     # Global Transformation (Uses Copy implicitly or explicitly)
     # This matches the canonical logic.
