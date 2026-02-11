@@ -176,7 +176,7 @@ if dotenv:
     dotenv.load_dotenv()
 
 DATA_VERSION = "v2.1"
-YEARS_BACK = int(os.getenv("YEARS_BACK", "10"))
+YEARS_BACK = int(os.getenv("YEARS_BACK", "25"))
 HIST_START_DEFAULT = (datetime.utcnow() - timedelta(days=365*YEARS_BACK)).strftime("%Y-%m-%d")
 DATA_START_TS = _parse_start_date(os.getenv("DATA_START_DATE"), HIST_START_DEFAULT)
 DATA_START_DATE = DATA_START_TS.strftime("%Y-%m-%d")
@@ -185,7 +185,7 @@ PIPE_START_TS = _parse_start_date(os.getenv("PIPE_START_DATE"), PIPE_START_DEFAU
 PIPE_START_DATE = PIPE_START_TS.strftime("%Y-%m-%d")
 HOLDOUT_START_DEFAULT = os.getenv("HOLDOUT_START_DATE", "2023-01-01")
 HOLDOUT_START_TS = _parse_start_date(os.getenv("HOLDOUT_START_DATE"), HOLDOUT_START_DEFAULT)
-TRAIN_START_TS = _parse_start_date(os.getenv("TRAIN_START_DATE"), DATA_START_DATE)
+TRAIN_START_TS = _parse_start_date(os.getenv("TRAIN_START_DATE", "2003-01-01"), DATA_START_DATE)
 TRAIN_START_DATE = TRAIN_START_TS.strftime("%Y-%m-%d")
 
 SOCIAL_MEDIA_TICKER_COUNT = int(os.getenv("SOCIAL_MEDIA_TICKER_COUNT","300"))
@@ -213,7 +213,7 @@ _OPENSIGNALS_FEATURE_GENERATORS: List[Any] = []
 # diagnostics config
 DIAG_LAST_ERAS = int(os.getenv("DIAG_LAST_ERAS","300"))
 DIAG_TARGET_ERAS_COUNT = int(os.getenv("DIAG_TARGET_ERAS_COUNT","100"))
-DIAG_FULL_UNIVERSE = bool(int(os.getenv("DIAG_FULL_UNIVERSE","1")))
+DIAG_FULL_UNIVERSE = bool(int(os.getenv("DIAG_FULL_UNIVERSE","0")))
 DIAG_MIN_TICKERS_PER_ERA = int(os.getenv("DIAG_MIN_TICKERS_PER_ERA","2000"))
 DIAG_UPLOAD_TRIMMED = bool(int(os.getenv("DIAG_UPLOAD_TRIMMED","1")))
 MISSING_RATIO_DROP = float(os.getenv("MISSING_RATIO_DROP","0.3"))
@@ -260,6 +260,7 @@ ENABLE_WIKIPEDIA = True
 ENABLE_GOOGLE_TRENDS = True
 ENABLE_SOCIAL_FEATURES = bool(int(os.getenv("ENABLE_SOCIAL_FEATURES","0")))
 SOCIAL_FEATURE_WEIGHT = float(os.getenv("SOCIAL_FEATURE_WEIGHT","0.3"))
+
 SOCIAL_FEATURE_WHITELIST = {
     part.strip() for part in os.getenv(
         "SOCIAL_FEATURE_WHITELIST",
