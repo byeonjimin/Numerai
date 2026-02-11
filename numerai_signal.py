@@ -275,7 +275,7 @@ SOCIAL_ONLY_UNIVERSE = bool(int(os.getenv("SOCIAL_ONLY_UNIVERSE","0")))
 # crypto hook (disabled)
 ENABLE_CRYPTO_META = bool(int(os.getenv("ENABLE_CRYPTO_META","0")))
 
-CACHE_DIR = Path("meta"); CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = Path("cache"); CACHE_DIR.mkdir(parents=True, exist_ok=True)
 PRICE_CACHE = CACHE_DIR / "prices.parquet"
 SOCIAL_CACHE = CACHE_DIR / "hist_social.parquet"
 META_CACHE = CACHE_DIR / "meta.parquet"
@@ -460,18 +460,17 @@ def download_numerai_data(napi):
         return pd.read_parquet(local_path)
 
     log.info("[1/10] Preparing Numerai datasets...")
-    # Modified paths for user's folder structure
-    train = _load_or_download(f"{DATA_VERSION}/train.parquet", f"signals_v2.1_train/{DATA_VERSION.replace('/','_')}_train.parquet")
-    valid = _load_or_download(f"{DATA_VERSION}/validation.parquet", f"signals_v2.1_train/{DATA_VERSION.replace('/','_')}_validation.parquet")
-    live  = _load_or_download(f"{DATA_VERSION}/live.parquet", f"signals_v2.1_train/{DATA_VERSION.replace('/','_')}_live.parquet")
+    train = _load_or_download(f"{DATA_VERSION}/train.parquet", f"{DATA_VERSION.replace('/','_')}_train.parquet")
+    valid = _load_or_download(f"{DATA_VERSION}/validation.parquet", f"{DATA_VERSION.replace('/','_')}_validation.parquet")
+    live  = _load_or_download(f"{DATA_VERSION}/live.parquet", f"{DATA_VERSION.replace('/','_')}_live.parquet")
     t_weights = _load_or_download(
         f"{DATA_VERSION}/train_sample_weights.parquet",
-        f"signals_v2.1_train/{DATA_VERSION.replace('/','_')}_train_sample_weights.parquet"
+        f"{DATA_VERSION.replace('/','_')}_train_sample_weights.parquet"
     )
     try:
         v_weights = _load_or_download(
             f"{DATA_VERSION}/validation_sample_weights.parquet",
-            f"signals_v2.1_train/{DATA_VERSION.replace('/','_')}_validation_sample_weights.parquet"
+            f"{DATA_VERSION.replace('/','_')}_validation_sample_weights.parquet"
         )
     except Exception:
         v_weights = pd.DataFrame()

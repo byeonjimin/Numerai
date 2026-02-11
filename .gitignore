@@ -5,7 +5,11 @@ __pycache__/
 
 logs/
 cache/
+meta/
+signals_v2.1_train/
 *.parquet
+*.zip
+
 live_submission_*.csv
 diagnostics_*.csv
 diagnostics_raw_*.csv
