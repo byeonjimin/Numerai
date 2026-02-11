@@ -220,7 +220,7 @@ MISSING_RATIO_DROP = float(os.getenv("MISSING_RATIO_DROP","0.3"))
 
 # neutralization
 NEUTRALIZE_FEATURES = True
-NEUTRALIZE_PREDICTIONS = True  # enable by default for safer risk profile
+NEUTRALIZE_PREDICTIONS = False  # matched to optimal 'Feature Neutral' config
 RISK_NEUTRALIZE = False
 SIZE_NEUTRALIZE_STRENGTH = float(os.getenv("SIZE_NEUTRALIZE_STRENGTH","0.7"))  # partial to avoid overkill
 VOL_NEUTRALIZE_STRENGTH  = float(os.getenv("VOL_NEUTRALIZE_STRENGTH","0.7"))
@@ -2100,6 +2100,16 @@ def run_all(args):
     # stage progress headline
     print("\n" + "="*80)
     print("NUMERAI SIGNALS v7.5 - ALL-IN-ONE")
+    print("="*80)
+
+    print("="*80)
+    print(f"CONFIG VERIFICATION:")
+    print(f"  YEARS_BACK: {YEARS_BACK}")
+    print(f"  TRAIN_START_DATE: {TRAIN_START_DATE}")
+    print(f"  NEUTRALIZE_PREDICTIONS: {NEUTRALIZE_PREDICTIONS}")
+    print(f"  NEUTRALIZE_FEATURES: {NEUTRALIZE_FEATURES}")
+    print(f"  ENABLE_SOCIAL_FEATURES: {ENABLE_SOCIAL_FEATURES}")
+    print(f"  ERA_DECAY_HALFLIFE: {ERA_DECAY_HALFLIFE}")
     print("="*80)
 
     napi, reddit, newsapi, pytrends, analyzer = setup_apis()
